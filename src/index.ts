@@ -1605,7 +1605,7 @@ const transportType = process.env.FIRECRAWL_TRANSPORT || 'stdio';
 if (transportType === 'sse') {
   // SSE mode: start the HTTP server that handles SSE connections
   const PORT = process.env.PORT || 8000;
-  let currentSseTransport; // for handling POST messages
+  let currentSseTransport: SSEServerTransport | undefined;
 
   http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url.startsWith('/sse')) {
