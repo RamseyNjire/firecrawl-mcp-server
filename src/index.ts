@@ -1608,7 +1608,7 @@ if (transportType === 'sse') {
   let currentSseTransport: SSEServerTransport | undefined;
 
   http.createServer(async (req, res) => {
-    if (req.method === 'GET' && req.url.startsWith('/sse')) {
+    if (req.method === 'GET' && req.url?.startsWith('/sse')) {
       try {
         console.error('SSE GET request received');
         // Create SSE transport using '/sse' endpoint and the current response object
@@ -1645,7 +1645,7 @@ if (transportType === 'sse') {
         res.writeHead(500);
         res.end('Failed to start SSE transport');
       }
-    } else if (req.method === 'POST' && req.url.startsWith('/messages')) {
+    } else if (req.method === 'POST' && req.url?.startsWith('/messages')) {
       // Forward POST messages to our current SSE transport for processing
       if (currentSseTransport) {
         await currentSseTransport.handlePostMessage(req, res);
