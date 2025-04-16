@@ -1569,99 +1569,106 @@ function trimResponseText(text: string): string {
   return text.trim();
 }
 
-// Server startup
-// async function runServer() {
-//   try {
-//     console.error('Initializing Firecrawl MCP Server...');
+// Stdio Server startup
+async function runServer() {
+  try {
+    console.error('Initializing Firecrawl MCP Server...');
 
-//     const transport = new StdioServerTransport();
+    const transport = new StdioServerTransport();
 
-//     // Detect if we're using stdio transport
-//     isStdioTransport = transport instanceof StdioServerTransport;
-//     if (isStdioTransport) {
-//       console.error(
-//         'Running in stdio mode, logging will be directed to stderr'
-//       );
-//     }
-
-//     await server.connect(transport);
-
-//     // Now that we're connected, we can send logging messages
-//     safeLog('info', 'Firecrawl MCP Server initialized successfully');
-//     safeLog(
-//       'info',
-//       `Configuration: API URL: ${FIRECRAWL_API_URL || 'default'}`
-//     );
-
-//     console.error('Firecrawl MCP Server running on stdio');
-//   } catch (error) {
-//     console.error('Fatal error running server:', error);
-//     process.exit(1);
-//   }
-// }
-
-const PORT = process.env.PORT || 8000;
-
-// We'll store the current SSE transport here for handling POST messages.
-let currentSseTransport;
-
-// Create an HTTP server to handle SSE connections
-http.createServer(async (req, res) => {
-  if (req.method === 'GET' && req.url.startsWith('/sse')) {
-    try {
-      console.error('SSE GET request received');
-
-      // Instantiate SSEServerTransport with the SSE endpoint and the ServerResponse object.
-      const sseTransport = new SSEServerTransport('/sse', res);
-      currentSseTransport = sseTransport; // store for later use in POST handlers
-
-      // Start the SSE transport (sets headers and sends the initial "endpoint" event)
-      await sseTransport.start();
-      console.error('SSE transport started');
-
-      // Start a heartbeat to keep the connection alive (send a comment every 15 seconds)
-      const heartbeatInterval = setInterval(() => {
-        try {
-          res.write(':\n\n'); // SSE comment for heartbeat
-        } catch (err) {
-          console.error('Heartbeat error:', err);
-        }
-      }, 15000);
-
-      // When the connection closes, clear the interval and close the SSE transport.
-      res.on('close', () => {
-        clearInterval(heartbeatInterval);
-        sseTransport.close();
-        currentSseTransport = undefined;
-        console.error('SSE connection closed');
-      });
-
-      // Connect the MCP server using the SSE transport.
-      await server.connect(sseTransport);
-      console.error('MCP server connected via SSE');
-      // Note: Do not end the response; the connection remains open for streaming SSE events.
-    } catch (error) {
-      console.error('Error starting SSE transport:', error);
-      res.writeHead(500);
-      res.end('Failed to start SSE transport');
+    // Detect if we're using stdio transport
+    isStdioTransport = transport instanceof StdioServerTransport;
+    if (isStdioTransport) {
+      console.error(
+        'Running in stdio mode, logging will be directed to stderr'
+      );
     }
-  } else if (req.method === 'POST' && req.url.startsWith('/messages')) {
-    // Forward POST requests to the current SSE transport's handler.
-    if (currentSseTransport) {
-      await currentSseTransport.handlePostMessage(req, res);
-    } else {
-      res.writeHead(500);
-      res.end('No SSE connection established');
-    }
-  } else {
-    res.writeHead(404);
-    res.end();
+
+    await server.connect(transport);
+
+    // Now that we're connected, we can send logging messages
+    safeLog('info', 'Firecrawl MCP Server initialized successfully');
+    safeLog(
+      'info',
+      `Configuration: API URL: ${FIRECRAWL_API_URL || 'default'}`
+    );
+
+    console.error('Firecrawl MCP Server running on stdio');
+  } catch (error) {
+    console.error('Fatal error running server:', error);
+    process.exit(1);
   }
-}).listen(PORT, () => {
-  console.error(`HTTP server listening on port ${PORT}`);
-});
+}
 
-runServer().catch((error: any) => {
-  console.error('Fatal error running server:', error);
-  process.exit(1);
-});
+const transportType = process.env.FIRECRAWL_TRANSPORT || 'stdio';
+
+if (transportType === 'sse') {
+  // SSE mode: start the HTTP server that handles SSE connections
+  const PORT = process.env.PORT || 8000;
+  let currentSseTransport; // for handling POST messages
+
+  http.createServer(async (req, res) => {
+    if (req.method === 'GET' && req.url.startsWith('/sse')) {
+      try {
+        console.error('SSE GET request received');
+        // Create SSE transport using '/sse' endpoint and the current response object
+        const sseTransport = new SSEServerTransport('/sse', res);
+        currentSseTransport = sseTransport;
+        
+        // Start the SSE connection (this sets headers and sends the initial event)
+        await sseTransport.start();
+        console.error('SSE transport started');
+
+        // Start a heartbeat to keep the connection alive (send a comment every 15 seconds)
+        const heartbeatInterval = setInterval(() => {
+          try {
+            res.write(':\n\n'); // SSE comment
+          } catch (err) {
+            console.error('Heartbeat error:', err);
+          }
+        }, 15000);
+
+        // When the connection closes, clear the heartbeat and close the SSE transport
+        res.on('close', () => {
+          clearInterval(heartbeatInterval);
+          sseTransport.close();
+          currentSseTransport = undefined;
+          console.error('SSE connection closed');
+        });
+
+        // Connect the MCP server using the SSE transport.
+        await server.connect(sseTransport);
+        console.error('MCP server connected via SSE');
+        // Do not call res.end() here to keep connection open.
+      } catch (error) {
+        console.error('Error starting SSE transport:', error);
+        res.writeHead(500);
+        res.end('Failed to start SSE transport');
+      }
+    } else if (req.method === 'POST' && req.url.startsWith('/messages')) {
+      // Forward POST messages to our current SSE transport for processing
+      if (currentSseTransport) {
+        await currentSseTransport.handlePostMessage(req, res);
+      } else {
+        res.writeHead(500);
+        res.end('No SSE connection established');
+      }
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  }).listen(PORT, () => {
+    console.error(`HTTP server listening on port ${PORT}`);
+  });
+} else {
+  // stdio mode: use your existing runServer() logic
+  runServer().catch((error: any) => {
+    console.error('Fatal error running server:', error);
+    process.exit(1);
+  });
+}
+
+// runServer().catch((error: any) => {
+//   console.error('Fatal error running server:', error);
+//   process.exit(1);
+// });
